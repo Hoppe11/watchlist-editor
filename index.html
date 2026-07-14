@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Watchlist-Marken</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel2: #1c2129;
+    --line: #2d333b;
+    --text: #e6edf3;
+    --dim: #8b949e;
+    --accent: #4dabf7;
+    --usd: #3fb950;
+    --eur: #d29922;
+    --warn: #f85149;
+    --changed: #1f3a5f;
+    --radius: 10px;
+    font-size: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding-bottom: 120px;
+  }
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(13,17,23,.92); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+    padding: calc(env(safe-area-inset-top) + 10px) 14px 10px;
+  }
+  header h1 { font-size: 1.05rem; font-weight: 600; letter-spacing: .01em; }
+  header .sub { font-size: .75rem; color: var(--dim); margin-top: 2px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row .grow { flex: 1; }
+
+  input, select, button, textarea {
+    font: inherit; color: inherit; border: 1px solid var(--line);
+    background: var(--panel); border-radius: var(--radius);
+  }
+  input[type=text], input[type=password], input[type=search] {
+    width: 100%; padding: 11px 12px; font-size: 16px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  button {
+    padding: 11px 16px; font-weight: 600; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #04121f; }
+  button.ghost { background: transparent; }
+  button:disabled { opacity: .45; }
+
+  main { padding: 12px 12px 0; max-width: 720px; margin: 0 auto; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 14px; margin-bottom: 12px;
+  }
+  .card h2 { font-size: .95rem; margin-bottom: 10px; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: .75rem; color: var(--dim); margin-bottom: 4px; }
+  .hint { font-size: .75rem; color: var(--dim); line-height: 1.45; }
+
+  .searchbar {
+    position: sticky; top: calc(env(safe-area-inset-top) + 52px); z-index: 15;
+    background: var(--bg); padding: 8px 0;
+  }
+
+  .liste-group { margin-bottom: 6px; }
+  .liste-head {
+    font-size: .72rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--dim); padding: 14px 4px 6px;
+  }
+  .pos {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); margin-bottom: 8px; overflow: hidden;
+  }
+  .pos.changed { border-color: var(--accent); background: linear-gradient(0deg, var(--panel), var(--changed) 300%); }
+  .pos-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 12px; cursor: pointer; user-select: none;
+  }
+  .pos-head .nm { flex: 1; min-width: 0; }
+  .pos-head .nm .n1 { font-weight: 600; font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pos-head .nm .n2 { font-size: .72rem; color: var(--dim); margin-top: 1px; }
+  .badge {
+    font-size: .68rem; font-weight: 700; padding: 3px 7px; border-radius: 6px;
+    letter-spacing: .04em;
+  }
+  .badge.usd { color: var(--usd); border: 1px solid var(--usd); }
+  .badge.eur { color: var(--eur); border: 1px solid var(--eur); }
+  .kurs { font-variant-numeric: tabular-nums; font-size: .85rem; color: var(--dim); }
+  .marks-mini { font-size: .72rem; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .chev { color: var(--dim); font-size: .8rem; transition: transform .15s; }
+  .pos.open .chev { transform: rotate(90deg); }
+
+  .pos-body { display: none; border-top: 1px solid var(--line); padding: 12px; }
+  .pos.open .pos-body { display: block; }
+  .marks-grid {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
+  }
+  @media (max-width: 460px) { .marks-grid { grid-template-columns: repeat(3, 1fr); } }
+  .mark label { display: block; font-size: .68rem; color: var(--dim); margin-bottom: 3px; text-align: center; }
+  .mark input {
+    width: 100%; padding: 10px 6px; text-align: center; font-size: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+  .mark input.dirty { border-color: var(--accent); }
+  .mark input.invalid { border-color: var(--warn); }
+  .plausi { margin-top: 8px; font-size: .75rem; color: var(--warn); line-height: 1.4; }
+  .notiz { margin-top: 8px; font-size: .72rem; color: var(--dim); }
+
+  .commitbar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
+    background: rgba(13,17,23,.95); backdrop-filter: blur(10px);
+    border-top: 1px solid var(--line);
+    padding: 10px 14px calc(env(safe-area-inset-bottom) + 10px);
+    display: none;
+  }
+  .commitbar.show { display: block; }
+  .commitbar .summary { font-size: .78rem; color: var(--dim); margin-bottom: 8px; }
+  .toast {
+    position: fixed; top: calc(env(safe-area-inset-top) + 60px); left: 50%; transform: translateX(-50%);
+    background: var(--panel2); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 10px 16px; font-size: .85rem; z-index: 50; max-width: 90vw;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5); display: none;
+  }
+  .toast.show { display: block; }
+  .toast.err { border-color: var(--warn); }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--dim); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .settings-toggle { font-size: .78rem; color: var(--accent); background: none; border: none; padding: 6px 0; }
+  .diff-list { font-size: .78rem; font-variant-numeric: tabular-nums; line-height: 1.6; max-height: 30vh; overflow-y: auto; }
+  .diff-list b { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="row">
+    <div class="grow">
+      <h1>Watchlist-Marken</h1>
+      <div class="sub" id="statusline">Nicht verbunden</div>
+    </div>
+    <button class="ghost" id="btnReload" title="Neu laden" style="display:none">&#8635;</button>
+    <button class="ghost" id="btnSettings">&#9881;</button>
+  </div>
+</header>
+
+<main>
+  <!-- Einstellungen -->
+  <div class="card" id="settingsCard">
+    <h2>Verbindung zu GitHub</h2>
+    <div class="field">
+      <label>Repository (Besitzer/Name)</label>
+      <input type="text" id="inRepo" value="Hoppe11/watchlist-monitor" autocapitalize="off" autocorrect="off">
+    </div>
+    <div class="field">
+      <label>Branch</label>
+      <input type="text" id="inBranch" value="main" autocapitalize="off" autocorrect="off">
+    </div>
+    <div class="field">
+      <label>Fine-grained Token (nur Contents: Read/Write auf dieses Repo)</label>
+      <input type="password" id="inToken" placeholder="github_pat_..." autocapitalize="off" autocorrect="off">
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary grow" id="btnConnect">Verbinden &amp; Watchlist laden</button>
+    </div>
+    <p class="hint" style="margin-top:10px">
+      Das Token wird nur auf diesem Ger&auml;t gespeichert und ausschlie&szlig;lich an api.github.com gesendet.
+      Marken-Regel: Ticker ohne Suffix (US-B&ouml;rse) &rarr; Marke in <b>USD</b>; Ticker mit Suffix (.DE, .AS, .L &hellip;) &rarr; Marke in <b>EUR</b>.
+      Dezimal: Punkt oder Komma, beides ok.
+    </p>
+  </div>
+
+  <!-- Suche -->
+  <div class="searchbar" id="searchbar" style="display:none">
+    <input type="search" id="inSearch" placeholder="Ticker oder Name suchen &hellip;">
+  </div>
+
+  <!-- Positionsliste -->
+  <div id="listContainer"></div>
+</main>
+
+<!-- Commit-Leiste -->
+<div class="commitbar" id="commitbar">
+  <div class="summary" id="commitSummary"></div>
+  <div class="row">
+    <button class="ghost grow" id="btnDiscard">Verwerfen</button>
+    <button class="primary grow" id="btnCommit">Speichern &rarr; GitHub</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- Zustand ----------
+  var COLS = ["Liste","Name","Ticker","Kauf1","Kauf2","Stopp","Ziel1","Ziel2","Notiz"];
+  var MARKS = ["Kauf1","Kauf2","Stopp","Ziel1","Ziel2"];
+  var state = {
+    rows: [],          // Objekte mit den 9 Spalten (Strings, wie in der Datei)
+    orig: [],          // Kopie zum Diffen
+    sha: null,         // Datei-SHA fuer den Commit
+    prices: {},        // Name -> letzter Kurs aus report.txt
+    cfg: { repo: "", branch: "main", token: "" }
+  };
+
+  // ---------- Helfer ----------
+  function $(id){ return document.getElementById(id); }
+  function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+
+  function toast(msg, isErr, ms){
+    var t = $("toast");
+    t.textContent = msg;
+    t.className = "toast show" + (isErr ? " err" : "");
+    clearTimeout(t._h);
+    t._h = setTimeout(function(){ t.className = "toast"; }, ms || 3200);
+  }
+
+  function num(s){
+    s = (s || "").trim();
+    if (!s) return null;
+    var v = parseFloat(s.replace(",", "."));
+    return isNaN(v) ? null : v;
+  }
+
+  function isUsd(ticker){ return ticker.indexOf(".") === -1; }
+
+  function b64encodeUtf8(str){
+    var bytes = new TextEncoder().encode(str);
+    var bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function b64decodeUtf8(b64){
+    var bin = atob(b64.replace(/\n/g, ""));
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    var s = new TextDecoder("utf-8").decode(bytes);
+    if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1);  // BOM entfernen
+    return s;
+  }
+
+  // ---------- Persistenz der Einstellungen (nur dieses Geraet) ----------
+  function loadCfg(){
+    try {
+      var raw = localStorage.getItem("wledit_cfg");
+      if (raw) state.cfg = JSON.parse(raw);
+    } catch(e){}
+    if (state.cfg.repo)   $("inRepo").value   = state.cfg.repo;
+    if (state.cfg.branch) $("inBranch").value = state.cfg.branch;
+    if (state.cfg.token)  $("inToken").value  = state.cfg.token;
+  }
+  function saveCfg(){
+    try { localStorage.setItem("wledit_cfg", JSON.stringify(state.cfg)); } catch(e){}
+  }
+
+  // ---------- GitHub-API ----------
+  function api(path, opts){
+    opts = opts || {};
+    opts.headers = Object.assign({
+      "Authorization": "Bearer " + state.cfg.token,
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28"
+    }, opts.headers || {});
+    return fetch("https://api.github.com" + path, opts).then(function(r){
+      if (!r.ok) return r.json().catch(function(){ return {}; }).then(function(j){
+        var msg = (j && j.message) ? j.message : ("HTTP " + r.status);
+        throw new Error(msg + " (" + r.status + ")");
+      });
+      return r.json();
+    });
+  }
+
+  function fetchCsv(){
+    var p = "/repos/" + state.cfg.repo + "/contents/watchlist.csv?ref=" + encodeURIComponent(state.cfg.branch);
+    return api(p).then(function(j){
+      state.sha = j.sha;
+      return b64decodeUtf8(j.content);
+    });
+  }
+
+  function fetchReport(){
+    var p = "/repos/" + state.cfg.repo + "/contents/report.txt?ref=" + encodeURIComponent(state.cfg.branch);
+    return api(p).then(function(j){
+      return b64decodeUtf8(j.content);
+    }).catch(function(){ return ""; });   // Report ist optional
+  }
+
+  // ---------- CSV ----------
+  function parseCsv(text){
+    var lines = text.split(/\r?\n/).filter(function(l){ return l.trim() !== ""; });
+    var hdr = lines[0].split(";").map(function(h){ return h.trim(); });
+    var rows = [];
+    for (var i = 1; i < lines.length; i++){
+      var parts = lines[i].split(";");
+      var row = {};
+      for (var c = 0; c < COLS.length; c++){
+        var idx = hdr.indexOf(COLS[c]);
+        row[COLS[c]] = idx >= 0 && idx < parts.length ? parts[idx].trim() : "";
+      }
+      if (row.Ticker) rows.push(row);
+    }
+    return rows;
+  }
+
+  function buildCsv(rows){
+    var out = [COLS.join(";")];
+    rows.forEach(function(r){
+      out.push(COLS.map(function(c){ return r[c] || ""; }).join(";"));
+    });
+    return out.join("\n") + "\n";
+  }
+
+  // ---------- report.txt: letzte Kurse je Name ----------
+  function parsePrices(text){
+    var prices = {};
+    text.split(/\r?\n/).forEach(function(line){
+      // Zeilen wie "  Broadcom                399.97  K1=342.45 Z1=399.52"
+      var m = line.match(/^  (\S.*?)\s{2,}([\d.]+)(\s|$)/);
+      if (m) prices[m[1].trim()] = parseFloat(m[2]);
+    });
+    return prices;
+  }
+
+  // ---------- Rendering ----------
+  function render(){
+    var q = ($("inSearch").value || "").toLowerCase();
+    var container = $("listContainer");
+    var groups = {};
+    var order = [];
+    state.rows.forEach(function(r, i){
+      if (q && r.Name.toLowerCase().indexOf(q) === -1 && r.Ticker.toLowerCase().indexOf(q) === -1) return;
+      if (!groups[r.Liste]){ groups[r.Liste] = []; order.push(r.Liste); }
+      groups[r.Liste].push(i);
+    });
+
+    var html = "";
+    order.forEach(function(liste){
+      html += '<div class="liste-group"><div class="liste-head">' + esc(liste) + '</div>';
+      groups[liste].forEach(function(i){
+        var r = state.rows[i];
+        var o = state.orig[i];
+        var dirty = MARKS.some(function(m){ return r[m] !== o[m]; });
+        var usd = isUsd(r.Ticker);
+        var kurs = state.prices[r.Name];
+        var mini = MARKS.map(function(m){
+          return r[m] ? m.replace("Kauf","K").replace("Stopp","S").replace("Ziel","Z") + "=" + r[m] : null;
+        }).filter(Boolean).join(" ");
+        html +=
+          '<div class="pos' + (dirty ? " changed" : "") + '" data-i="' + i + '">' +
+            '<div class="pos-head" data-toggle="' + i + '">' +
+              '<div class="nm"><div class="n1">' + esc(r.Name) + '</div>' +
+              '<div class="n2">' + esc(r.Ticker) + (mini ? ' &middot; ' + esc(mini) : '') + '</div></div>' +
+              (kurs ? '<div class="kurs">' + kurs.toFixed(2) + '</div>' : '') +
+              '<span class="badge ' + (usd ? "usd\">USD" : "eur\">EUR") + '</span>' +
+              '<span class="chev">&#9656;</span>' +
+            '</div>' +
+            '<div class="pos-body">' +
+              '<div class="marks-grid">' +
+                MARKS.map(function(m){
+                  var val = r[m] || "";
+                  var cls = (r[m] !== o[m]) ? " dirty" : "";
+                  return '<div class="mark"><label>' + m + '</label>' +
+                    '<input type="text" inputmode="decimal" data-i="' + i + '" data-m="' + m + '" value="' + esc(val) + '" class="' + cls.trim() + '"></div>';
+                }).join("") +
+              '</div>' +
+              '<div class="plausi" id="plausi-' + i + '">' + plausiText(i) + '</div>' +
+              (r.Notiz ? '<div class="notiz">' + esc(r.Notiz) + '</div>' : '') +
+            '</div>' +
+          '</div>';
+      });
+      html += '</div>';
+    });
+    container.innerHTML = html || '<p class="hint" style="padding:20px 4px">Keine Treffer.</p>';
+
+    // offene Karten wiederherstellen
+    (window._openSet || []).forEach(function(i){
+      var el = container.querySelector('.pos[data-i="' + i + '"]');
+      if (el) el.classList.add("open");
+    });
+
+    updateCommitbar();
+  }
+
+  function plausiText(i){
+    var r = state.rows[i];
+    var kurs = state.prices[r.Name];
+    var msgs = [];
+    var usd = isUsd(r.Ticker);
+    MARKS.forEach(function(m){
+      var v = num(r[m]);
+      if (v === null && (r[m] || "").trim() !== "") msgs.push(m + ": keine g\u00fcltige Zahl");
+    });
+    if (kurs){
+      var s = num(r.Stopp);
+      if (s !== null && s >= kurs) msgs.push("Stopp " + s + " liegt \u00fcber/auf Kurs " + kurs.toFixed(2) + " \u2013 w\u00fcrde sofort ausl\u00f6sen");
+      ["Ziel1","Ziel2"].forEach(function(z){
+        var v = num(r[z]);
+        if (v !== null && v <= kurs) msgs.push(z + " " + v + " liegt unter/auf Kurs " + kurs.toFixed(2) + " \u2013 w\u00fcrde sofort ausl\u00f6sen");
+      });
+      ["Kauf1","Kauf2"].forEach(function(k){
+        var v = num(r[k]);
+        if (v !== null && v >= kurs) msgs.push(k + " " + v + " liegt \u00fcber/auf Kurs " + kurs.toFixed(2) + " \u2013 w\u00fcrde sofort ausl\u00f6sen");
+      });
+    }
+    if (msgs.length) msgs.unshift("Marken in " + (usd ? "USD" : "EUR") + " angeben.");
+    return msgs.join("<br>");
+  }
+
+  function diffs(){
+    var d = [];
+    state.rows.forEach(function(r, i){
+      MARKS.forEach(function(m){
+        if (r[m] !== state.orig[i][m]){
+          d.push({ i: i, ticker: r.Ticker, name: r.Name, mark: m,
+                   from: state.orig[i][m] || "\u2013", to: r[m] || "\u2013" });
+        }
+      });
+    });
+    return d;
+  }
+
+  function updateCommitbar(){
+    var d = diffs();
+    var bar = $("commitbar");
+    if (!d.length){ bar.classList.remove("show"); return; }
+    bar.classList.add("show");
+    var lines = d.slice(0, 8).map(function(x){
+      return "<b>" + esc(x.ticker) + "</b> " + x.mark + ": " + esc(x.from) + " \u2192 " + esc(x.to);
+    });
+    if (d.length > 8) lines.push("\u2026 und " + (d.length - 8) + " weitere");
+    $("commitSummary").innerHTML = '<div class="diff-list">' + lines.join("<br>") + "</div>";
+  }
+
+  // ---------- Aktionen ----------
+  function connect(){
+    state.cfg.repo   = $("inRepo").value.trim();
+    state.cfg.branch = $("inBranch").value.trim() || "main";
+    state.cfg.token  = $("inToken").value.trim();
+    if (!state.cfg.repo || !state.cfg.token){ toast("Repo und Token angeben.", true); return; }
+    saveCfg();
+    $("btnConnect").disabled = true;
+    $("statusline").innerHTML = '<span class="spinner"></span>Lade watchlist.csv \u2026';
+    Promise.all([fetchCsv(), fetchReport()]).then(function(res){
+      state.rows = parseCsv(res[0]);
+      state.orig = JSON.parse(JSON.stringify(state.rows));
+      state.prices = parsePrices(res[1]);
+      window._openSet = [];
+      $("settingsCard").style.display = "none";
+      $("searchbar").style.display = "";
+      $("btnReload").style.display = "";
+      $("statusline").textContent = state.rows.length + " Positionen \u00b7 " + state.cfg.repo;
+      render();
+      toast("Watchlist geladen.");
+    }).catch(function(e){
+      $("statusline").textContent = "Fehler beim Laden";
+      toast("Laden fehlgeschlagen: " + e.message, true, 6000);
+    }).finally(function(){
+      $("btnConnect").disabled = false;
+    });
+  }
+
+  function commit(){
+    var d = diffs();
+    if (!d.length) return;
+    // Validierung: keine ungueltigen Zahlen committen
+    for (var i = 0; i < state.rows.length; i++){
+      for (var m = 0; m < MARKS.length; m++){
+        var v = state.rows[i][MARKS[m]];
+        if ((v || "").trim() !== "" && num(v) === null){
+          toast("Ung\u00fcltige Zahl bei " + state.rows[i].Ticker + " / " + MARKS[m], true, 5000);
+          return;
+        }
+      }
+    }
+    var msg = d.length === 1
+      ? "Marke ge\u00e4ndert: " + d[0].ticker + " " + d[0].mark + " " + d[0].from + " \u2192 " + d[0].to
+      : d.length + " Marken ge\u00e4ndert (" + d.slice(0,3).map(function(x){ return x.ticker; }).join(", ") + (d.length > 3 ? ", \u2026" : "") + ")";
+
+    $("btnCommit").disabled = true;
+    $("btnCommit").innerHTML = '<span class="spinner"></span>Speichere \u2026';
+    api("/repos/" + state.cfg.repo + "/contents/watchlist.csv", {
+      method: "PUT",
+      body: JSON.stringify({
+        message: msg + " [via Watchlist-Editor]",
+        content: b64encodeUtf8(buildCsv(state.rows)),
+        sha: state.sha,
+        branch: state.cfg.branch
+      })
+    }).then(function(j){
+      state.sha = j.content.sha;
+      state.orig = JSON.parse(JSON.stringify(state.rows));
+      render();
+      toast("Gespeichert \u2013 n\u00e4chster Monitor-Lauf nutzt die neuen Marken.");
+    }).catch(function(e){
+      if (/409|does not match/.test(e.message)){
+        toast("Konflikt: Datei wurde zwischenzeitlich ge\u00e4ndert (Monitor-Commit?). Bitte neu laden und erneut \u00e4ndern.", true, 7000);
+      } else {
+        toast("Speichern fehlgeschlagen: " + e.message, true, 6000);
+      }
+    }).finally(function(){
+      $("btnCommit").disabled = false;
+      $("btnCommit").textContent = "Speichern \u2192 GitHub";
+    });
+  }
+
+  function discard(){
+    state.rows = JSON.parse(JSON.stringify(state.orig));
+    render();
+    toast("\u00c4nderungen verworfen.");
+  }
+
+  // ---------- Events ----------
+  document.addEventListener("click", function(ev){
+    var t = ev.target.closest("[data-toggle]");
+    if (t){
+      var pos = t.closest(".pos");
+      pos.classList.toggle("open");
+      var i = parseInt(pos.getAttribute("data-i"), 10);
+      window._openSet = window._openSet || [];
+      var idx = window._openSet.indexOf(i);
+      if (pos.classList.contains("open") && idx === -1) window._openSet.push(i);
+      if (!pos.classList.contains("open") && idx !== -1) window._openSet.splice(idx, 1);
+    }
+  });
+
+  document.addEventListener("input", function(ev){
+    var el = ev.target;
+    if (el.matches(".mark input")){
+      var i = parseInt(el.getAttribute("data-i"), 10);
+      var m = el.getAttribute("data-m");
+      state.rows[i][m] = el.value.trim();
+      var valid = el.value.trim() === "" || num(el.value) !== null;
+      el.classList.toggle("invalid", !valid);
+      el.classList.toggle("dirty", state.rows[i][m] !== state.orig[i][m]);
+      var pos = el.closest(".pos");
+      var dirty = MARKS.some(function(mm){ return state.rows[i][mm] !== state.orig[i][mm]; });
+      pos.classList.toggle("changed", dirty);
+      $("plausi-" + i).innerHTML = plausiText(i);
+      updateCommitbar();
+    }
+    if (el.id === "inSearch") render();
+  });
+
+  $("btnConnect").addEventListener("click", connect);
+  $("btnCommit").addEventListener("click", commit);
+  $("btnDiscard").addEventListener("click", discard);
+  $("btnReload").addEventListener("click", function(){
+    if (diffs().length && !confirm("Ungespeicherte \u00c4nderungen verwerfen und neu laden?")) return;
+    connect();
+  });
+  $("btnSettings").addEventListener("click", function(){
+    var c = $("settingsCard");
+    c.style.display = c.style.display === "none" ? "" : "none";
+  });
+
+  loadCfg();
+})();
+</script>
+</body>
+</html>
