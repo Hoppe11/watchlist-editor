@@ -178,7 +178,10 @@
 
   <!-- Suche -->
   <div class="searchbar" id="searchbar" style="display:none">
-    <input type="search" id="inSearch" placeholder="Ticker oder Name suchen &hellip;">
+    <div class="row">
+      <input type="search" id="inSearch" placeholder="Ticker oder Name suchen &hellip;" class="grow">
+      <button class="primary" id="btnAdd" title="Neue Position anlegen">+ Neu</button>
+    </div>
   </div>
 
   <!-- Positionsliste -->
@@ -204,10 +207,13 @@
   var COLS = ["Liste","Name","Ticker","Kauf1","Kauf2","Stopp","Ziel1","Ziel2","Notiz"];
   var MARKS = ["Kauf1","Kauf2","Stopp","Ziel1","Ziel2"];
   var state = {
-    rows: [],          // Objekte mit den 9 Spalten (Strings, wie in der Datei)
-    orig: [],          // Kopie zum Diffen
+    rows: [],          // Objekte mit den 9 Spalten + _id (Strings, wie in der Datei)
+    origById: {},      // _id -> Original-Snapshot (nur fuer beim Laden vorhandene Zeilen)
+    deleted: [],        // gelöschte Original-Zeilen (fuer Commit-Zusammenfassung)
+    nextId: 1,
     sha: null,         // Datei-SHA fuer den Commit
     prices: {},        // Name -> letzter Kurs aus report.txt
+    listen: [],         // bekannte Listen-Namen (fuer das Hinzufuegen-Formular)
     cfg: { repo: "", branch: "main", token: "" }
   };
 
@@ -298,15 +304,17 @@
     var lines = text.split(/\r?\n/).filter(function(l){ return l.trim() !== ""; });
     var hdr = lines[0].split(";").map(function(h){ return h.trim(); });
     var rows = [];
+    var id = 1;
     for (var i = 1; i < lines.length; i++){
       var parts = lines[i].split(";");
-      var row = {};
+      var row = { _id: "r" + (id++) };
       for (var c = 0; c < COLS.length; c++){
         var idx = hdr.indexOf(COLS[c]);
         row[COLS[c]] = idx >= 0 && idx < parts.length ? parts[idx].trim() : "";
       }
       if (row.Ticker) rows.push(row);
     }
+    state.nextId = id;
     return rows;
   }
 
@@ -316,6 +324,14 @@
       out.push(COLS.map(function(c){ return r[c] || ""; }).join(";"));
     });
     return out.join("\n") + "\n";
+  }
+
+  function newRowSkeleton(liste){
+    return {
+      _id: "n" + (state.nextId++),
+      Liste: liste || "", Name: "", Ticker: "",
+      Kauf1: "", Kauf2: "", Stopp: "", Ziel1: "", Ziel2: "", Notiz: ""
+    };
   }
 
   // ---------- report.txt: letzte Kurse je Name ----------
@@ -330,49 +346,67 @@
   }
 
   // ---------- Rendering ----------
+  function rowById(id){
+    for (var i = 0; i < state.rows.length; i++) if (state.rows[i]._id === id) return state.rows[i];
+    return null;
+  }
+
   function render(){
     var q = ($("inSearch").value || "").toLowerCase();
     var container = $("listContainer");
     var groups = {};
     var order = [];
-    state.rows.forEach(function(r, i){
+    state.listen = [];
+    state.rows.forEach(function(r){
+      if (state.listen.indexOf(r.Liste) === -1 && r.Liste) state.listen.push(r.Liste);
       if (q && r.Name.toLowerCase().indexOf(q) === -1 && r.Ticker.toLowerCase().indexOf(q) === -1) return;
       if (!groups[r.Liste]){ groups[r.Liste] = []; order.push(r.Liste); }
-      groups[r.Liste].push(i);
+      groups[r.Liste].push(r._id);
     });
 
     var html = "";
     order.forEach(function(liste){
       html += '<div class="liste-group"><div class="liste-head">' + esc(liste) + '</div>';
-      groups[liste].forEach(function(i){
-        var r = state.rows[i];
-        var o = state.orig[i];
-        var dirty = MARKS.some(function(m){ return r[m] !== o[m]; });
+      groups[liste].forEach(function(id){
+        var r = rowById(id);
+        var o = state.origById[id];
+        var isNew = !o;
+        var dirty = isNew || MARKS.some(function(m){ return r[m] !== o[m]; });
         var usd = isUsd(r.Ticker);
         var kurs = state.prices[r.Name];
         var mini = MARKS.map(function(m){
           return r[m] ? m.replace("Kauf","K").replace("Stopp","S").replace("Ziel","Z") + "=" + r[m] : null;
         }).filter(Boolean).join(" ");
         html +=
-          '<div class="pos' + (dirty ? " changed" : "") + '" data-i="' + i + '">' +
-            '<div class="pos-head" data-toggle="' + i + '">' +
-              '<div class="nm"><div class="n1">' + esc(r.Name) + '</div>' +
-              '<div class="n2">' + esc(r.Ticker) + (mini ? ' &middot; ' + esc(mini) : '') + '</div></div>' +
+          '<div class="pos' + (dirty ? " changed" : "") + '" data-id="' + id + '">' +
+            '<div class="pos-head" data-toggle="' + id + '">' +
+              '<div class="nm"><div class="n1">' + esc(r.Name || "(ohne Namen)") + (isNew ? ' <span style="color:var(--accent);font-weight:700">NEU</span>' : '') + '</div>' +
+              '<div class="n2">' + esc(r.Ticker || "\u2013") + (mini ? ' &middot; ' + esc(mini) : '') + '</div></div>' +
               (kurs ? '<div class="kurs">' + kurs.toFixed(2) + '</div>' : '') +
               '<span class="badge ' + (usd ? "usd\">USD" : "eur\">EUR") + '</span>' +
               '<span class="chev">&#9656;</span>' +
             '</div>' +
             '<div class="pos-body">' +
-              '<div class="marks-grid">' +
+              '<div class="marks-grid" style="grid-template-columns: 1fr 1fr">' +
+                '<div class="mark"><label>Liste</label><input type="text" data-id="' + id + '" data-f="Liste" value="' + esc(r.Liste) + '" style="text-align:left"></div>' +
+                '<div class="mark"><label>Name</label><input type="text" data-id="' + id + '" data-f="Name" value="' + esc(r.Name) + '" style="text-align:left"></div>' +
+              '</div>' +
+              '<div class="marks-grid" style="grid-template-columns: 1fr; margin-top:8px">' +
+                '<div class="mark"><label>Ticker (Yahoo-Notation)</label><input type="text" data-id="' + id + '" data-f="Ticker" value="' + esc(r.Ticker) + '" style="text-align:left" autocapitalize="off" autocorrect="off"></div>' +
+              '</div>' +
+              '<div class="marks-grid" style="margin-top:8px">' +
                 MARKS.map(function(m){
                   var val = r[m] || "";
-                  var cls = (r[m] !== o[m]) ? " dirty" : "";
+                  var cls = (!o || r[m] !== o[m]) ? " dirty" : "";
                   return '<div class="mark"><label>' + m + '</label>' +
-                    '<input type="text" inputmode="decimal" data-i="' + i + '" data-m="' + m + '" value="' + esc(val) + '" class="' + cls.trim() + '"></div>';
+                    '<input type="text" inputmode="decimal" data-id="' + id + '" data-m="' + m + '" value="' + esc(val) + '" class="' + cls.trim() + '"></div>';
                 }).join("") +
               '</div>' +
-              '<div class="plausi" id="plausi-' + i + '">' + plausiText(i) + '</div>' +
-              (r.Notiz ? '<div class="notiz">' + esc(r.Notiz) + '</div>' : '') +
+              '<div class="plausi" id="plausi-' + id + '">' + plausiText(id) + '</div>' +
+              '<div class="marks-grid" style="grid-template-columns: 1fr; margin-top:8px">' +
+                '<div class="mark"><label>Notiz</label><input type="text" data-id="' + id + '" data-f="Notiz" value="' + esc(r.Notiz) + '" style="text-align:left"></div>' +
+              '</div>' +
+              '<button class="ghost" data-del="' + id + '" style="width:100%; margin-top:10px; color:var(--warn); border-color:var(--warn)">Position l&ouml;schen</button>' +
             '</div>' +
           '</div>';
       });
@@ -381,16 +415,17 @@
     container.innerHTML = html || '<p class="hint" style="padding:20px 4px">Keine Treffer.</p>';
 
     // offene Karten wiederherstellen
-    (window._openSet || []).forEach(function(i){
-      var el = container.querySelector('.pos[data-i="' + i + '"]');
+    (window._openSet || []).forEach(function(id){
+      var el = container.querySelector('.pos[data-id="' + id + '"]');
       if (el) el.classList.add("open");
     });
 
     updateCommitbar();
   }
 
-  function plausiText(i){
-    var r = state.rows[i];
+  function plausiText(id){
+    var r = rowById(id);
+    if (!r) return "";
     var kurs = state.prices[r.Name];
     var msgs = [];
     var usd = isUsd(r.Ticker);
@@ -415,27 +450,33 @@
   }
 
   function diffs(){
-    var d = [];
-    state.rows.forEach(function(r, i){
+    var edits = [], added = [];
+    state.rows.forEach(function(r){
+      var o = state.origById[r._id];
+      if (!o){ added.push(r); return; }
       MARKS.forEach(function(m){
-        if (r[m] !== state.orig[i][m]){
-          d.push({ i: i, ticker: r.Ticker, name: r.Name, mark: m,
-                   from: state.orig[i][m] || "\u2013", to: r[m] || "\u2013" });
+        if (r[m] !== o[m]){
+          edits.push({ ticker: r.Ticker, name: r.Name, mark: m,
+                       from: o[m] || "\u2013", to: r[m] || "\u2013" });
         }
       });
     });
-    return d;
+    return { edits: edits, added: added, deleted: state.deleted.slice() };
   }
 
   function updateCommitbar(){
     var d = diffs();
     var bar = $("commitbar");
-    if (!d.length){ bar.classList.remove("show"); return; }
+    var total = d.edits.length + d.added.length + d.deleted.length;
+    if (!total){ bar.classList.remove("show"); return; }
     bar.classList.add("show");
-    var lines = d.slice(0, 8).map(function(x){
-      return "<b>" + esc(x.ticker) + "</b> " + x.mark + ": " + esc(x.from) + " \u2192 " + esc(x.to);
+    var lines = [];
+    d.added.forEach(function(r){ lines.push('<b style="color:var(--usd)">+ neu</b> ' + esc(r.Ticker || r.Name || "(unbenannt)")); });
+    d.deleted.forEach(function(r){ lines.push('<b style="color:var(--warn)">\u2013 gel\u00f6scht</b> ' + esc(r.Ticker || r.Name)); });
+    d.edits.slice(0, 8).forEach(function(x){
+      lines.push("<b>" + esc(x.ticker) + "</b> " + x.mark + ": " + esc(x.from) + " \u2192 " + esc(x.to));
     });
-    if (d.length > 8) lines.push("\u2026 und " + (d.length - 8) + " weitere");
+    if (d.edits.length > 8) lines.push("\u2026 und " + (d.edits.length - 8) + " weitere \u00c4nderungen");
     $("commitSummary").innerHTML = '<div class="diff-list">' + lines.join("<br>") + "</div>";
   }
 
@@ -450,7 +491,9 @@
     $("statusline").innerHTML = '<span class="spinner"></span>Lade watchlist.csv \u2026';
     Promise.all([fetchCsv(), fetchReport()]).then(function(res){
       state.rows = parseCsv(res[0]);
-      state.orig = JSON.parse(JSON.stringify(state.rows));
+      state.origById = {};
+      state.rows.forEach(function(r){ state.origById[r._id] = JSON.parse(JSON.stringify(r)); });
+      state.deleted = [];
       state.prices = parsePrices(res[1]);
       window._openSet = [];
       $("settingsCard").style.display = "none";
@@ -469,20 +512,33 @@
 
   function commit(){
     var d = diffs();
-    if (!d.length) return;
-    // Validierung: keine ungueltigen Zahlen committen
+    var total = d.edits.length + d.added.length + d.deleted.length;
+    if (!total) return;
+
+    // Validierung: keine ungueltigen Zahlen, neue Zeilen brauchen Liste/Name/Ticker
     for (var i = 0; i < state.rows.length; i++){
+      var row = state.rows[i];
       for (var m = 0; m < MARKS.length; m++){
-        var v = state.rows[i][MARKS[m]];
+        var v = row[MARKS[m]];
         if ((v || "").trim() !== "" && num(v) === null){
-          toast("Ung\u00fcltige Zahl bei " + state.rows[i].Ticker + " / " + MARKS[m], true, 5000);
+          toast("Ung\u00fcltige Zahl bei " + (row.Ticker || row.Name) + " / " + MARKS[m], true, 5000);
           return;
         }
       }
+      if (!state.origById[row._id] && (!row.Liste.trim() || !row.Name.trim() || !row.Ticker.trim())){
+        toast("Neue Position ben\u00f6tigt Liste, Name und Ticker.", true, 5000);
+        return;
+      }
     }
-    var msg = d.length === 1
-      ? "Marke ge\u00e4ndert: " + d[0].ticker + " " + d[0].mark + " " + d[0].from + " \u2192 " + d[0].to
-      : d.length + " Marken ge\u00e4ndert (" + d.slice(0,3).map(function(x){ return x.ticker; }).join(", ") + (d.length > 3 ? ", \u2026" : "") + ")";
+
+    var parts = [];
+    if (d.added.length)   parts.push(d.added.length + " neu");
+    if (d.deleted.length) parts.push(d.deleted.length + " gel\u00f6scht");
+    if (d.edits.length)   parts.push(d.edits.length + " Marken ge\u00e4ndert");
+    var msg = parts.join(", ") +
+      " (" + [].concat(d.added, d.deleted).slice(0,3).map(function(x){ return x.Ticker || x.ticker; })
+             .concat(d.edits.slice(0,3).map(function(x){ return x.ticker; }))
+             .filter(function(v,i2,a){ return a.indexOf(v) === i2; }).slice(0,3).join(", ") + ")";
 
     $("btnCommit").disabled = true;
     $("btnCommit").innerHTML = '<span class="spinner"></span>Speichere \u2026';
@@ -496,7 +552,9 @@
       })
     }).then(function(j){
       state.sha = j.content.sha;
-      state.orig = JSON.parse(JSON.stringify(state.rows));
+      state.origById = {};
+      state.rows.forEach(function(r){ state.origById[r._id] = JSON.parse(JSON.stringify(r)); });
+      state.deleted = [];
       render();
       toast("Gespeichert \u2013 n\u00e4chster Monitor-Lauf nutzt die neuen Marken.");
     }).catch(function(e){
@@ -512,48 +570,102 @@
   }
 
   function discard(){
-    state.rows = JSON.parse(JSON.stringify(state.orig));
+    if (!confirm("Alle ungespeicherten \u00c4nderungen (inkl. neuer/gel\u00f6schter Positionen) verwerfen?")) return;
+    state.rows = Object.keys(state.origById).map(function(id){ return JSON.parse(JSON.stringify(state.origById[id])); });
+    state.deleted = [];
     render();
     toast("\u00c4nderungen verworfen.");
   }
 
+  function addPosition(){
+    var liste = prompt("In welche Liste soll die neue Position? (z.B. " + (state.listen[0] || "07/25") + ")", state.listen[0] || "");
+    if (liste === null) return;
+    var row = newRowSkeleton(liste.trim());
+    state.rows.push(row);
+    window._openSet = window._openSet || [];
+    window._openSet.push(row._id);
+    render();
+    // gleich zur neuen Karte scrollen und Namensfeld fokussieren
+    setTimeout(function(){
+      var el = document.querySelector('.pos[data-id="' + row._id + '"]');
+      if (el){ el.scrollIntoView({ behavior: "smooth", block: "center" }); }
+      var inp = document.querySelector('input[data-id="' + row._id + '"][data-f="Name"]');
+      if (inp) inp.focus();
+    }, 60);
+  }
+
+  function deletePosition(id){
+    var r = rowById(id);
+    if (!r) return;
+    var label = r.Ticker || r.Name || "diese Position";
+    if (!confirm('"' + label + '" wirklich l\u00f6schen?')) return;
+    var o = state.origById[id];
+    if (o) state.deleted.push(o);
+    state.rows = state.rows.filter(function(x){ return x._id !== id; });
+    render();
+  }
+
   // ---------- Events ----------
   document.addEventListener("click", function(ev){
+    var del = ev.target.closest("[data-del]");
+    if (del){ deletePosition(del.getAttribute("data-del")); return; }
+
     var t = ev.target.closest("[data-toggle]");
     if (t){
       var pos = t.closest(".pos");
       pos.classList.toggle("open");
-      var i = parseInt(pos.getAttribute("data-i"), 10);
+      var id = pos.getAttribute("data-id");
       window._openSet = window._openSet || [];
-      var idx = window._openSet.indexOf(i);
-      if (pos.classList.contains("open") && idx === -1) window._openSet.push(i);
+      var idx = window._openSet.indexOf(id);
+      if (pos.classList.contains("open") && idx === -1) window._openSet.push(id);
       if (!pos.classList.contains("open") && idx !== -1) window._openSet.splice(idx, 1);
     }
   });
 
   document.addEventListener("input", function(ev){
     var el = ev.target;
-    if (el.matches(".mark input")){
-      var i = parseInt(el.getAttribute("data-i"), 10);
+    if (el.matches(".mark input[data-m]")){
+      var id = el.getAttribute("data-id");
       var m = el.getAttribute("data-m");
-      state.rows[i][m] = el.value.trim();
+      var r = rowById(id);
+      r[m] = el.value.trim();
+      var o = state.origById[id];
       var valid = el.value.trim() === "" || num(el.value) !== null;
       el.classList.toggle("invalid", !valid);
-      el.classList.toggle("dirty", state.rows[i][m] !== state.orig[i][m]);
+      el.classList.toggle("dirty", !o || r[m] !== o[m]);
       var pos = el.closest(".pos");
-      var dirty = MARKS.some(function(mm){ return state.rows[i][mm] !== state.orig[i][mm]; });
+      var dirty = !o || MARKS.some(function(mm){ return r[mm] !== o[mm]; });
       pos.classList.toggle("changed", dirty);
-      $("plausi-" + i).innerHTML = plausiText(i);
+      $("plausi-" + id).innerHTML = plausiText(id);
+      updateCommitbar();
+    }
+    if (el.matches("input[data-f]")){
+      var id2 = el.getAttribute("data-id");
+      var f = el.getAttribute("data-f");
+      var r2 = rowById(id2);
+      r2[f] = el.value;
+      var pos2 = el.closest(".pos");
+      var o2 = state.origById[id2];
+      var dirty2 = !o2 || MARKS.some(function(mm){ return r2[mm] !== o2[mm]; }) ||
+                   ["Liste","Name","Ticker","Notiz"].some(function(ff){ return r2[ff] !== (o2 ? o2[ff] : ""); });
+      pos2.classList.toggle("changed", dirty2);
       updateCommitbar();
     }
     if (el.id === "inSearch") render();
   });
 
+  document.addEventListener("blur", function(ev){
+    // Namen/Ticker-Aenderung an Kopfzeile + Badge sofort sichtbar machen
+    if (ev.target.matches('input[data-f="Name"], input[data-f="Ticker"], input[data-f="Liste"]')) render();
+  }, true);
+
   $("btnConnect").addEventListener("click", connect);
   $("btnCommit").addEventListener("click", commit);
   $("btnDiscard").addEventListener("click", discard);
+  $("btnAdd").addEventListener("click", addPosition);
   $("btnReload").addEventListener("click", function(){
-    if (diffs().length && !confirm("Ungespeicherte \u00c4nderungen verwerfen und neu laden?")) return;
+    var d = diffs();
+    if ((d.edits.length + d.added.length + d.deleted.length) && !confirm("Ungespeicherte \u00c4nderungen verwerfen und neu laden?")) return;
     connect();
   });
   $("btnSettings").addEventListener("click", function(){
