@@ -13,3 +13,7 @@ Neu:
 - Speichern direkt nach watchlist.csv im GitHub-Repo
 
 Die bestehende verschlüsselte GitHub-Token-Ablage im Browser/PWA bleibt erhalten.
+
+## V2.1
+- WATCH/DEPOT als deutlich sichtbares Badge in jeder Zeile
+- Status im aufgeklappten Datensatz als eigene große Auswahl
