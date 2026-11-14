@@ -1,19 +1,14 @@
-# Watchlist Editor V2
+# Watchlist Editor V3.3 – repariert
 
-Unterstütztes Schema:
+Verbesserungen:
+- Passwortänderung wird nach dem Schreiben sofort wieder aus localStorage gelesen.
+- Neues Passwort wird testweise entschlüsselt; erst dann meldet die App Erfolg.
+- Start prüft, ob localStorage und WebCrypto verfügbar sind.
+- Beschädigte Zugangsdaten führen nicht mehr zu einem leeren Bildschirm.
+- Entsperren unterscheidet zwischen falschem Passwort und GitHub-/Watchlist-Fehler.
+- Sichtbare Startfehler statt stiller JavaScript-Abbrüche.
+- Cache-Buster im Manifest (`?v=3.3`).
 
-ticker,name,isin,liste,typ,status,waehrung,kauf1,kauf2,stopp,ziel1,ziel2
-
-Neu:
-- Komma-CSV
-- WATCH / DEPOT
-- EUR / USD
-- ISIN und Typ
-- Kauf1/Kauf2/Stopp/Ziel1/Ziel2
-- Speichern direkt nach watchlist.csv im GitHub-Repo
-
-Die bestehende verschlüsselte GitHub-Token-Ablage im Browser/PWA bleibt erhalten.
-
-## V2.1
-- WATCH/DEPOT als deutlich sichtbares Badge in jeder Zeile
-- Status im aufgeklappten Datensatz als eigene große Auswahl
+Sicherheit:
+Das Passwort selbst wird nicht gespeichert. Es dient nur zur Verschlüsselung des
+GitHub-Tokens im lokalen iPhone-Speicher.

@@ -8,6 +8,9 @@
 <meta name="apple-mobile-web-app-title" content="Watchlist">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0d1117">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
 <link rel="apple-touch-icon" sizes="167x167" href="icon-167.png">
 <link rel="apple-touch-icon" sizes="152x152" href="icon-152.png">
@@ -300,7 +303,7 @@
       <h2>Schnell-&Uuml;bernahme</h2>
       <p class="hint" style="margin-bottom:8px">
         Eine Zeile pro Aktie: <b>Ticker: Marke=Wert Marke=Wert &hellip;</b><br>
-        G&uuml;ltige Marken: Kauf1, Kauf2, Stopp, Ziel1, Ziel2. Status und Stammdaten werden direkt in der Position bearbeitet. Beispiel:<br>
+        G&uuml;ltige Marken: Alarm unten, Alarm oben, Stopp, Ziel1, Ziel2. Status und Stammdaten werden direkt in der Position bearbeitet. Beispiel:<br>
         <span style="font-family:monospace">INIO: Kauf1=29.50 Kauf2=26.00 Ziel1=42.00</span><br>
         Nur Positionen, die es schon in der Watchlist gibt, werden aktualisiert &ndash; neue Aktien vorher &uuml;ber &bdquo;+ Neu&ldquo; anlegen.
       </p>
@@ -330,12 +333,12 @@
 <script>
 (function(){
   "use strict";
-  var APP_VERSION = "2.1";
+  var APP_VERSION = "3.3";
 
   // ---------- Zustand ----------
-  var COLS = ["Ticker","Name","ISIN","Liste","Typ","Status","Waehrung","Kauf1","Kauf2","Stopp","Ziel1","Ziel2"];
+  var COLS = ["Ticker","Name","ISIN","Liste","Typ","Status","Depot","Waehrung","Stueck","Einstand","Kauf1","Kauf2","Stopp","Ziel1","Ziel2"];
   var MARKS = ["Kauf1","Kauf2","Stopp","Ziel1","Ziel2"];
-  var CSV_HEADERS = ["ticker","name","isin","liste","typ","status","waehrung","kauf1","kauf2","stopp","ziel1","ziel2"];
+  var CSV_HEADERS = ["ticker","name","isin","liste","typ","status","depot","waehrung","stueck","einstand","kauf1","kauf2","stopp","ziel1","ziel2"];
   var state = {
     rows: [],          // Objekte mit dem neuen Watchlist-Schema + _id
     origById: {},      // _id -> Original-Snapshot (nur fuer beim Laden vorhandene Zeilen)
@@ -369,6 +372,9 @@
   function isUsdRow(row){ return (row.Waehrung || "").toUpperCase() === "USD"; }
   function normStatus(s){ s=(s||"WATCH").toUpperCase(); return s==="DEPOT" ? "DEPOT" : "WATCH"; }
   function normCurrency(s){ s=(s||"EUR").toUpperCase(); return s==="USD" ? "USD" : "EUR"; }
+  function priceKey(name, currency){
+    return (name || "").trim() + "|" + (currency || "").toUpperCase();
+  }
 
   function b64encodeUtf8(str){
     var bytes = new TextEncoder().encode(str);
@@ -424,21 +430,59 @@
     });
   }
 
+  function storageWorks(){
+    try {
+      var k = "wledit_storage_test_" + Date.now();
+      localStorage.setItem(k, "ok");
+      var ok = localStorage.getItem(k) === "ok";
+      localStorage.removeItem(k);
+      return ok;
+    } catch(e){ return false; }
+  }
+
+  function validVault(v){
+    return !!(v && v.repo && v.branch && v.salt && v.iv && v.ct);
+  }
+
   function loadVault(){
-    try { var raw = localStorage.getItem("wledit_vault"); return raw ? JSON.parse(raw) : null; } catch(e){ return null; }
+    try {
+      var raw = localStorage.getItem("wledit_vault");
+      if (!raw) return null;
+      var v = JSON.parse(raw);
+      return v;
+    } catch(e){ return null; }
   }
   function saveVault(repo, branch, name, question, encPw, encAns){
+    var obj = {
+      repo: repo, branch: branch, name: name, question: question,
+      salt: encPw.salt, iv: encPw.iv, ct: encPw.ct,
+      saltQ: encAns.salt, ivQ: encAns.iv, ctQ: encAns.ct
+    };
     try {
-      localStorage.setItem("wledit_vault", JSON.stringify({
-        repo: repo, branch: branch, name: name, question: question,
-        salt: encPw.salt, iv: encPw.iv, ct: encPw.ct,
-        saltQ: encAns.salt, ivQ: encAns.iv, ctQ: encAns.ct
-      }));
-    } catch(e){}
+      localStorage.setItem("wledit_vault", JSON.stringify(obj));
+      var check = loadVault();
+      if (!check || check.ct !== obj.ct || check.salt !== obj.salt || check.iv !== obj.iv){
+        throw new Error("Speicherprüfung fehlgeschlagen");
+      }
+      return true;
+    } catch(e){
+      throw new Error("iPhone konnte die Zugangsdaten nicht dauerhaft speichern: " + e.message);
+    }
   }
+
   function saveVaultPasswordOnly(vault, encPw){
-    vault.salt = encPw.salt; vault.iv = encPw.iv; vault.ct = encPw.ct;
-    try { localStorage.setItem("wledit_vault", JSON.stringify(vault)); } catch(e){}
+    var copy = JSON.parse(JSON.stringify(vault || {}));
+    copy.salt = encPw.salt; copy.iv = encPw.iv; copy.ct = encPw.ct;
+    try {
+      localStorage.setItem("wledit_vault", JSON.stringify(copy));
+      var check = loadVault();
+      if (!check || check.ct !== encPw.ct || check.salt !== encPw.salt || check.iv !== encPw.iv){
+        throw new Error("Rückleseprüfung fehlgeschlagen");
+      }
+      return true;
+    } catch(e){
+      throw new Error("Neues Passwort konnte nicht dauerhaft gespeichert werden: " + e.message);
+    }
   }
   function normalizeAnswer(a){ return (a || "").trim().toLowerCase(); }
   function clearVault(){
@@ -569,7 +613,8 @@
     var hdr = splitCsvLine(lines[0], delim).map(function(h){ return h.trim().toLowerCase(); });
     var map = {
       Ticker:"ticker", Name:"name", ISIN:"isin", Liste:"liste",
-      Typ:"typ", Status:"status", Waehrung:"waehrung",
+      Typ:"typ", Status:"status", Depot:"depot", Waehrung:"waehrung",
+      Stueck:"stueck", Einstand:"einstand",
       Kauf1:"kauf1", Kauf2:"kauf2", Stopp:"stopp", Ziel1:"ziel1", Ziel2:"ziel2"
     };
     var rows = [], id = 1;
@@ -583,6 +628,7 @@
       row.Status = normStatus(row.Status);
       row.Waehrung = normCurrency(row.Waehrung);
       if (!row.Typ) row.Typ = "Aktie";
+      if (row.Status === "WATCH") row.Depot = "";
       if (row.Ticker) rows.push(row);
     }
     state.nextId = id;
@@ -593,7 +639,8 @@
     var delim = ",";
     var map = {
       ticker:"Ticker", name:"Name", isin:"ISIN", liste:"Liste",
-      typ:"Typ", status:"Status", waehrung:"Waehrung",
+      typ:"Typ", status:"Status", depot:"Depot", waehrung:"Waehrung",
+      stueck:"Stueck", einstand:"Einstand",
       kauf1:"Kauf1", kauf2:"Kauf2", stopp:"Stopp", ziel1:"Ziel1", ziel2:"Ziel2"
     };
     var out = [CSV_HEADERS.join(delim)];
@@ -607,7 +654,8 @@
     return {
       _id: "n" + (state.nextId++),
       Ticker:"", Name:"", ISIN:"", Liste:liste || "",
-      Typ:"Aktie", Status:"WATCH", Waehrung:"EUR",
+      Typ:"Aktie", Status:"WATCH", Depot:"", Waehrung:"EUR",
+      Stueck:"", Einstand:"",
       Kauf1:"", Kauf2:"", Stopp:"", Ziel1:"", Ziel2:""
     };
   }
@@ -616,9 +664,8 @@
   function parsePrices(text){
     var prices = {};
     text.split(/\r?\n/).forEach(function(line){
-      // Zeilen wie "  Broadcom                399.97  K1=342.45 Z1=399.52"
-      var m = line.match(/^  (\S.*?)\s{2,}([\d.]+)\s+(?:EUR|USD)(?:\s|$)/);
-      if (m) prices[m[1].trim()] = parseFloat(m[2]);
+      var m = line.match(/^  (\S.*?)\s{2,}([\d.]+)\s+(EUR|USD)(?:\s|$)/);
+      if (m) prices[priceKey(m[1], m[3])] = parseFloat(m[2]);
     });
     return prices;
   }
@@ -651,7 +698,7 @@
         var isNew = !o;
         var dirty = isNew || COLS.some(function(m){ return r[m] !== o[m]; });
         var usd = isUsdRow(r);
-        var kurs = state.prices[r.Name];
+        var kurs = state.prices[priceKey(r.Name, r.Waehrung)];
         var mini = MARKS.map(function(m){
           return r[m] ? m.replace("Kauf","K").replace("Stopp","S").replace("Ziel","Z") + "=" + r[m] : null;
         }).filter(Boolean).join(" ");
@@ -659,7 +706,9 @@
           '<div class="pos' + (dirty ? " changed" : "") + '" data-id="' + id + '">' +
             '<div class="pos-head" data-toggle="' + id + '">' +
               '<div class="nm"><div class="n1">' + esc(r.Name || "(ohne Namen)") + (isNew ? ' <span style="color:var(--accent);font-weight:700">NEU</span>' : '') + '</div>' +
-              '<div class="n2">' + esc(r.Ticker || "\u2013") + (mini ? ' &middot; ' + esc(mini) : '') + '</div></div>' +
+              '<div class="n2">' + esc(r.Ticker || "\u2013") +
+              (r.Depot ? ' &middot; ' + esc(r.Depot) : '') +
+              (mini ? ' &middot; ' + esc(mini) : '') + '</div></div>' +
               (kurs ? '<div class="kurs">' + kurs.toFixed(2) + '</div>' : '') +
               '<span class="status-badge ' + ((r.Status||"WATCH")==="DEPOT" ? "depot\">DEPOT" : "watch\">WATCH") + '</span>' +
               '<span class="badge ' + (usd ? "usd\">USD" : "eur\">EUR") + '</span>' +
@@ -682,6 +731,12 @@
               '<div class="status-row">' +
                 '<div class="mark"><label>Status (WATCH / DEPOT)</label><select data-id="' + id + '" data-f="Status"><option value="WATCH"' + (r.Status==="WATCH"?" selected":"") + '>WATCH</option><option value="DEPOT"' + (r.Status==="DEPOT"?" selected":"") + '>DEPOT</option></select></div>' +
                 '<div class="mark"><label>Währung</label><select data-id="' + id + '" data-f="Waehrung"><option value="EUR"' + (r.Waehrung==="EUR"?" selected":"") + '>EUR</option><option value="USD"' + (r.Waehrung==="USD"?" selected":"") + '>USD</option></select></div>' +
+              '</div>' +              '<div class="marks-grid" style="grid-template-columns: 1fr; margin-top:8px">' +
+                '<div class="mark"><label>Depot</label><select data-id="' + id + '" data-f="Depot" style="width:100%;padding:12px 8px;font-size:16px"><option value=""' + (!r.Depot?" selected":"") + '>– kein Depot –</option><option value="Conny_2026"' + (r.Depot==="Conny_2026"?" selected":"") + '>Conny_2026</option><option value="Peti_2026"' + (r.Depot==="Peti_2026"?" selected":"") + '>Peti_2026</option></select></div>' +
+              '</div>' +
+              '<div class="marks-grid" style="grid-template-columns: 1fr 1fr; margin-top:8px">' +
+                '<div class="mark"><label>Stück</label><input type="number" step="any" data-id="' + id + '" data-f="Stueck" value="' + esc(r.Stueck) + '"></div>' +
+                '<div class="mark"><label>Einstand</label><input type="number" step="any" data-id="' + id + '" data-f="Einstand" value="' + esc(r.Einstand) + '"></div>' +
               '</div>' +
               '<div class="marks-grid" style="margin-top:8px">' +
                 MARKS.map(function(m){
@@ -712,7 +767,7 @@
   function plausiText(id){
     var r = rowById(id);
     if (!r) return "";
-    var kurs = state.prices[r.Name];
+    var kurs = state.prices[priceKey(r.Name, r.Waehrung)];
     var msgs = [];
     var usd = isUsdRow(r);
     MARKS.forEach(function(m){
@@ -788,6 +843,8 @@
       return Promise.all([ encryptToken(token, pw1), encryptToken(token, normalizeAnswer(secA)) ]);
     }).then(function(res){
       saveVault(repo, branch, name, secQ, res[0], res[1]);
+      var saved = loadVault();
+      if (!validVault(saved)) throw new Error("Gespeicherte Zugangsdaten sind unvollständig.");
       try { localStorage.removeItem("wledit_cfg"); } catch(e){}
       $("inToken").value = ""; $("inPw1").value = ""; $("inPw2").value = ""; $("inSecA").value = "";
       showMainApp();
@@ -802,20 +859,37 @@
 
   function doUnlock(){
     var vault = loadVault();
-    if (!vault){ toast("Kein gespeichertes Login gefunden.", true); showSetupScreen(false); return; }
+    if (!validVault(vault)){
+      toast("Gespeichertes Login fehlt oder ist beschädigt. Bitte Zugangsdaten neu einrichten.", true, 7000);
+      showSetupScreen(false);
+      return;
+    }
     var pw = $("inUnlockPw").value;
     if (!pw){ toast("Bitte Passwort eingeben.", true); return; }
+
     $("btnUnlock").disabled = true;
-    $("btnUnlock").innerHTML = '<span class="spinner"></span>Entsperre \u2026';
+    $("btnUnlock").innerHTML = '<span class="spinner"></span>Entsperre …';
+
     decryptToken({ salt: vault.salt, iv: vault.iv, ct: vault.ct }, pw).then(function(token){
+      if (!token) throw new Error("TOKEN_EMPTY");
       state.cfg = { repo: vault.repo, branch: vault.branch, token: token };
-      return loadWatchlist();
+
+      return loadWatchlist().catch(function(e){
+        var x = new Error("GITHUB_LOAD_FAILED: " + e.message);
+        x.isGithub = true;
+        throw x;
+      });
     }).then(function(){
       $("inUnlockPw").value = "";
       showMainApp();
-      toast("Willkommen zur\u00fcck!");
-    }).catch(function(){
-      toast("Falsches Passwort oder Verbindung fehlgeschlagen.", true, 5000);
+      toast("Willkommen zurück!");
+    }).catch(function(e){
+      if (e && e.isGithub){
+        toast("Passwort korrekt – aber GitHub/Watchlist konnte nicht geladen werden: " +
+              e.message.replace(/^GITHUB_LOAD_FAILED:\s*/, ""), true, 8000);
+      } else {
+        toast("Passwort falsch. Falls du es gerade geändert hast, versuche einmal das bisherige Passwort.", true, 7000);
+      }
     }).finally(function(){
       $("btnUnlock").disabled = false;
       $("btnUnlock").textContent = "Entsperren";
@@ -839,11 +913,15 @@
       if (pw1 !== pw2){ toast("Passw\u00f6rter stimmen nicht \u00fcberein.", true); return; }
       return encryptToken(token, pw1).then(function(enc){
         saveVaultPasswordOnly(vault, enc);
+        var verify = loadVault();
+        return decryptToken({ salt: verify.salt, iv: verify.iv, ct: verify.ct }, pw1);
+      }).then(function(tokenCheck){
+        if (tokenCheck !== token) throw new Error("Passwort-Speicherprüfung fehlgeschlagen.");
         state.cfg = { repo: vault.repo, branch: vault.branch, token: token };
         return loadWatchlist();
       }).then(function(){
         showMainApp();
-        toast("Passwort zur\u00fcckgesetzt \u2013 willkommen zur\u00fcck!");
+        toast("Passwort zurückgesetzt und dauerhaft gespeichert – willkommen zurück!");
       });
     }).catch(function(){
       toast("Antwort war leider falsch.", true, 5000);
@@ -862,19 +940,34 @@
 
   function changePassword(){
     if (!state.cfg.token){ toast("Nicht angemeldet.", true); return; }
+    if (!storageWorks()){
+      toast("Der iPhone-Speicher ist für diese Web-App nicht verfügbar. Passwort kann nicht geändert werden.", true, 8000);
+      return;
+    }
+
     var pw1 = prompt("Neues Passwort (mind. 4 Zeichen):");
     if (pw1 === null) return;
     if (!pw1 || pw1.length < 4){ toast("Passwort zu kurz (mind. 4 Zeichen).", true); return; }
+
     var pw2 = prompt("Passwort wiederholen:");
     if (pw2 === null) return;
-    if (pw1 !== pw2){ toast("Passw\u00f6rter stimmen nicht \u00fcberein.", true); return; }
+    if (pw1 !== pw2){ toast("Passwörter stimmen nicht überein.", true); return; }
+
     var vault = loadVault();
-    if (!vault){ toast("Kein gespeichertes Login gefunden.", true); return; }
+    if (!validVault(vault)){ toast("Kein gültiges gespeichertes Login gefunden.", true); return; }
+
     encryptToken(state.cfg.token, pw1).then(function(enc){
       saveVaultPasswordOnly(vault, enc);
-      toast("Passwort ge\u00e4ndert.");
+
+      // Sofortige Rücklese- und Entschlüsselungsprüfung.
+      var verify = loadVault();
+      if (!validVault(verify)) throw new Error("Gespeicherter Datensatz ist unvollständig.");
+      return decryptToken({ salt: verify.salt, iv: verify.iv, ct: verify.ct }, pw1);
+    }).then(function(tokenCheck){
+      if (tokenCheck !== state.cfg.token) throw new Error("Entschlüsselungsprüfung fehlgeschlagen.");
+      toast("Passwort geändert UND dauerhaft gespeichert.", false, 5000);
     }).catch(function(e){
-      toast("Fehler beim \u00c4ndern: " + e.message, true, 5000);
+      toast("Passwortänderung NICHT gespeichert: " + e.message, true, 8000);
     });
   }
 
@@ -917,6 +1010,17 @@
       row.Status = normStatus(row.Status);
       row.Waehrung = normCurrency(row.Waehrung);
       if (!row.Typ) row.Typ = "Aktie";
+      if (row.Status === "DEPOT"){
+        if (!row.Depot){
+          toast("DEPOT-Position benötigt Conny_2026 oder Peti_2026.", true, 5000);
+          return;
+        }
+        if (!String(row.Stueck || "").trim() || !String(row.Einstand || "").trim()){
+          toast("DEPOT-Position benötigt Stückzahl und Einstand.", true, 5000);
+          return;
+        }
+      }
+      if (row.Status === "WATCH") row.Depot = "";
     }
 
     var parts = [];
@@ -1008,7 +1112,7 @@
       var mm;
       while ((mm = re.exec(rest)) !== null){
         var key = mm[1].charAt(0).toUpperCase() + mm[1].slice(1).toLowerCase();
-        // korrekte Schreibweise wiederherstellen (Kauf1/Kauf2/Stopp/Ziel1/Ziel2)
+        // korrekte Schreibweise wiederherstellen (Alarm unten/oben/Stopp/Ziel1/Ziel2)
         MARKS.forEach(function(M){ if (M.toLowerCase() === mm[1].toLowerCase()) key = M; });
         marks[key] = mm[2].trim();
       }
@@ -1083,7 +1187,10 @@
       var id2 = el.getAttribute("data-id");
       var f = el.getAttribute("data-f");
       var r2 = rowById(id2);
-      if (f === "Status") r2[f] = normStatus(el.value);
+      if (f === "Status"){
+        r2[f] = normStatus(el.value);
+        if (r2[f] === "WATCH"){ r2.Depot = ""; r2.Stueck = ""; r2.Einstand = ""; }
+      }
       else if (f === "Waehrung") r2[f] = normCurrency(el.value);
       else r2[f] = el.value;
       var pos2 = el.closest(".pos");
@@ -1102,7 +1209,15 @@
       var f = el.getAttribute("data-f");
       var r = rowById(id);
       if (!r) return;
-      r[f] = (f === "Status") ? normStatus(el.value) : normCurrency(el.value);
+      if (f === "Status"){
+        r[f] = normStatus(el.value);
+        if (r[f] === "WATCH"){ r.Depot = ""; r.Stueck = ""; r.Einstand = ""; }
+      } else if (f === "Waehrung"){
+        r[f] = normCurrency(el.value);
+      } else {
+        r[f] = el.value;
+        if (f === "Depot" && r[f]) r.Status = "DEPOT";
+      }
       var o = state.origById[id];
       var pos = el.closest(".pos");
       var dirty = !o || COLS.some(function(ff){ return r[ff] !== o[ff]; });
@@ -1165,12 +1280,50 @@
     });
   });
 
+  function showStartupError(msg){
+    try {
+      document.querySelector("main").style.display = "";
+      $("settingsCard").style.display = "";
+      $("welcomeBack").style.display = "none";
+      $("goodbyeScreen").style.display = "none";
+      $("statusline").textContent = "Startfehler";
+      toast(msg, true, 12000);
+    } catch(e){
+      alert(msg);
+    }
+  }
+
+  window.addEventListener("error", function(ev){
+    showStartupError("App-Fehler: " + (ev.message || "unbekannter Fehler"));
+  });
+
+  window.addEventListener("unhandledrejection", function(ev){
+    var msg = ev && ev.reason && ev.reason.message ? ev.reason.message : String(ev.reason || "unbekannter Fehler");
+    showStartupError("App-Fehler: " + msg);
+  });
+
   // ---------- Start ----------
   (function init(){
+    if (!window.crypto || !window.crypto.subtle){
+      showSetupScreen(false);
+      toast("Diese iPhone-Web-App benötigt eine sichere HTTPS-Verbindung für die Passwortverschlüsselung.", true, 10000);
+      return;
+    }
+
+    if (!storageWorks()){
+      showSetupScreen(false);
+      toast("Lokaler iPhone-Speicher ist für diese App nicht verfügbar. Bitte nicht im privaten Modus öffnen.", true, 10000);
+      return;
+    }
+
     var vault = loadVault();
     var legacy = legacyCfg();
-    if (vault){
+
+    if (vault && validVault(vault)){
       showWelcomeBack(vault);
+    } else if (vault && !validVault(vault)){
+      showSetupScreen(false);
+      toast("Gespeicherte Zugangsdaten sind beschädigt. Bitte Zugangsdaten neu einrichten.", true, 10000);
     } else if (legacy && legacy.token){
       $("inRepo").value = legacy.repo || "Hoppe11/watchlist-monitor";
       $("inBranch").value = legacy.branch || "main";

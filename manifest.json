@@ -1,15 +1,23 @@
 {
   "name": "Watchlist-Marken",
   "short_name": "Watchlist",
-  "description": "Kauf-, Stopp- und Zielmarken der Watchlist direkt bearbeiten.",
-  "start_url": "./",
+  "description": "Superranking- und Depotmarken direkt bearbeiten.",
+  "start_url": "./?v=3.3",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0d1117",
   "theme_color": "#0d1117",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
   ]
 }
