@@ -1,8 +1,8 @@
 {
   "name": "Watchlist-Marken",
   "short_name": "Watchlist",
-  "description": "Superranking- und Depotmarken direkt bearbeiten.",
-  "start_url": "./?v=3.4",
+  "description": "Watchlist-Editor mit GitHub-PAT-Diagnose.",
+  "start_url": "./?v=3.5",
   "display": "standalone",
   "background_color": "#0d1117",
   "theme_color": "#0d1117",

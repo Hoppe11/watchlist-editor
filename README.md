@@ -1,14 +1,13 @@
-# Watchlist Editor V3.3 – repariert
+# Watchlist Editor V3.5 – PAT-Diagnose
 
-Verbesserungen:
-- Passwortänderung wird nach dem Schreiben sofort wieder aus localStorage gelesen.
-- Neues Passwort wird testweise entschlüsselt; erst dann meldet die App Erfolg.
-- Start prüft, ob localStorage und WebCrypto verfügbar sind.
-- Beschädigte Zugangsdaten führen nicht mehr zu einem leeren Bildschirm.
-- Entsperren unterscheidet zwischen falschem Passwort und GitHub-/Watchlist-Fehler.
-- Sichtbare Startfehler statt stiller JavaScript-Abbrüche.
-- Cache-Buster im Manifest (`?v=3.3`).
+Neu:
+- entfernt Leerzeichen/Zeilenumbrüche aus eingefügten Tokens
+- prüft zuerst GitHub `/user`
+- unterscheidet:
+  - PAT ungültig -> 401
+  - PAT gültig, Repo/Datei nicht erreichbar -> 404
+  - PAT gültig, Rechte unzureichend -> 403
+- erst danach wird die Watchlist geladen
+- GitHub API-Version auf 2026-03-10 aktualisiert
 
-Sicherheit:
-Das Passwort selbst wird nicht gespeichert. Es dient nur zur Verschlüsselung des
-GitHub-Tokens im lokalen iPhone-Speicher.
+Der Token wird niemals im Klartext in einer Fehlermeldung ausgegeben.

@@ -333,7 +333,7 @@
 <script>
 (function(){
   "use strict";
-  var APP_VERSION = "3.4";
+  var APP_VERSION = "3.5";
 
   // ---------- Zustand ----------
   var COLS = ["Ticker","Name","ISIN","Liste","Typ","Status","Depot","Waehrung","Stueck","Einstand","Kauf1","Kauf2","Stopp","Ziel1","Ziel2"];
@@ -553,12 +553,82 @@
       render();
     });
   }
+  function normalizeToken(raw){
+    // GitHub PATs enthalten keine Leerzeichen. Entfernt auch Zeilenumbrüche,
+    // die beim Kopieren auf Mobilgeräten unbemerkt mitkommen können.
+    return String(raw || "").replace(/\s+/g, "");
+  }
+
+  function tokenShape(token){
+    if (!token) return {ok:false, msg:"Token-Feld ist leer."};
+    if (token.indexOf("github_pat_") === 0) return {ok:true, kind:"Fine-grained PAT"};
+    if (token.indexOf("ghp_") === 0) return {ok:true, kind:"Classic PAT"};
+    return {
+      ok:false,
+      msg:"Der eingefügte Wert sieht nicht wie ein GitHub-PAT aus. " +
+          "Ein Fine-grained PAT beginnt normalerweise mit github_pat_."
+    };
+  }
+
+  function apiWithToken(path, token, opts){
+    opts = opts || {};
+    opts.headers = Object.assign({
+      "Authorization": "Bearer " + token,
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2026-03-10"
+    }, opts.headers || {});
+    return fetch("https://api.github.com" + path, opts).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(j){
+        if (!r.ok){
+          var msg = (j && j.message) ? j.message : ("HTTP " + r.status);
+          var err = new Error(msg + " (" + r.status + ")");
+          err.status = r.status;
+          throw err;
+        }
+        return j;
+      });
+    });
+  }
+
+  function diagnoseAccess(repo, branch, token){
+    return apiWithToken("/user", token).then(function(user){
+      if (!user || !user.login) throw new Error("PAT wurde zwar angenommen, aber GitHub lieferte keinen Benutzernamen.");
+      var p = "/repos/" + repo + "/contents/watchlist.csv?ref=" + encodeURIComponent(branch);
+      return apiWithToken(p, token).then(function(){
+        return {login:user.login};
+      }).catch(function(e){
+        if (e.status === 404){
+          throw new Error(
+            "PAT ist gültig (GitHub-Benutzer: " + user.login + "), " +
+            "aber Repository/Branch/watchlist.csv ist für diesen PAT nicht erreichbar (404)."
+          );
+        }
+        if (e.status === 403){
+          throw new Error(
+            "PAT ist gültig (GitHub-Benutzer: " + user.login + "), " +
+            "aber die Repository-Berechtigung reicht nicht aus (403). " +
+            "Contents muss Read and write sein."
+          );
+        }
+        throw e;
+      });
+    }).catch(function(e){
+      if (e.status === 401){
+        throw new Error(
+          "PAT UNGÜLTIG: GitHub lehnt den Token selbst mit 401 ab. " +
+          "Das ist kein Repo-Berechtigungsfehler."
+        );
+      }
+      throw e;
+    });
+  }
+
   function api(path, opts){
     opts = opts || {};
     opts.headers = Object.assign({
-      "Authorization": "Bearer " + state.cfg.token,
+      "Authorization": "Bearer " + normalizeToken(state.cfg.token),
       "Accept": "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28"
+      "X-GitHub-Api-Version": "2026-03-10"
     }, opts.headers || {});
     return fetch("https://api.github.com" + path, opts).then(function(r){
       if (!r.ok) return r.json().catch(function(){ return {}; }).then(function(j){
@@ -833,32 +903,53 @@
     var name   = $("inName").value.trim();
     var repo   = $("inRepo").value.trim();
     var branch = $("inBranch").value.trim() || "main";
-    var token  = $("inToken").value.trim();
+    var token  = normalizeToken($("inToken").value);
     var pw1 = $("inPw1").value;
     var pw2 = $("inPw2").value;
     var secQ = $("inSecQ").value.trim();
     var secA = $("inSecA").value;
-    if (!repo || !token){ toast("Repo und Token angeben.", true); return; }
-    if (!pw1 || pw1.length < 4){ toast("Bitte ein Passwort mit mindestens 4 Zeichen w\u00e4hlen.", true); return; }
-    if (pw1 !== pw2){ toast("Passw\u00f6rter stimmen nicht \u00fcberein.", true); return; }
-    if (!secQ || !secA){ toast("Bitte Sicherheitsfrage und Antwort ausf\u00fcllen (f\u00fcr \u201ePasswort vergessen?\u201c).", true, 5000); return; }
 
-    state.cfg = { repo: repo, branch: branch, token: token };
+    if (!repo || !token){ toast("Repo und Token angeben.", true); return; }
+
+    var shape = tokenShape(token);
+    if (!shape.ok){
+      toast(shape.msg, true, 8000);
+      return;
+    }
+
+    if (!pw1 || pw1.length < 4){ toast("Bitte ein Passwort mit mindestens 4 Zeichen wählen.", true); return; }
+    if (pw1 !== pw2){ toast("Passwörter stimmen nicht überein.", true); return; }
+    if (!secQ || !secA){
+      toast("Bitte Sicherheitsfrage und Antwort ausfüllen (für „Passwort vergessen?“).", true, 5000);
+      return;
+    }
+
     $("btnConnect").disabled = true;
-    $("statusline").innerHTML = '<span class="spinner"></span>Pr\u00fcfe Zugang \u2026';
-    loadWatchlist().then(function(){
-      return Promise.all([ encryptToken(token, pw1), encryptToken(token, normalizeAnswer(secA)) ]);
+    $("statusline").innerHTML = '<span class="spinner"></span>Prüfe PAT direkt bei GitHub …';
+
+    diagnoseAccess(repo, branch, token).then(function(diag){
+      $("statusline").textContent = "PAT gültig · GitHub: " + diag.login;
+      state.cfg = { repo: repo, branch: branch, token: token };
+      return loadWatchlist();
+    }).then(function(){
+      return Promise.all([
+        encryptToken(token, pw1),
+        encryptToken(token, normalizeAnswer(secA))
+      ]);
     }).then(function(res){
       saveVault(repo, branch, name, secQ, res[0], res[1]);
       var saved = loadVault();
       if (!validVault(saved)) throw new Error("Gespeicherte Zugangsdaten sind unvollständig.");
       try { localStorage.removeItem("wledit_cfg"); } catch(e){}
-      $("inToken").value = ""; $("inPw1").value = ""; $("inPw2").value = ""; $("inSecA").value = "";
+      $("inToken").value = "";
+      $("inPw1").value = "";
+      $("inPw2").value = "";
+      $("inSecA").value = "";
       showMainApp();
-      toast("Eingerichtet \u2013 Watchlist geladen.");
+      toast("PAT gültig – Watchlist geladen und App eingerichtet.", false, 6000);
     }).catch(function(e){
-      $("statusline").textContent = "Fehler beim Laden";
-      toast("Einrichtung fehlgeschlagen: " + e.message, true, 6000);
+      $("statusline").textContent = "Einrichtung fehlgeschlagen";
+      toast("Diagnose: " + e.message, true, 12000);
     }).finally(function(){
       $("btnConnect").disabled = false;
     });
