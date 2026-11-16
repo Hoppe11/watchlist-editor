@@ -333,7 +333,7 @@
 <script>
 (function(){
   "use strict";
-  var APP_VERSION = "3.3";
+  var APP_VERSION = "3.4";
 
   // ---------- Zustand ----------
   var COLS = ["Ticker","Name","ISIN","Liste","Typ","Status","Depot","Waehrung","Stueck","Einstand","Kauf1","Kauf2","Stopp","Ziel1","Ziel2"];
@@ -352,6 +352,13 @@
 
   // ---------- Helfer ----------
   function $(id){ return document.getElementById(id); }
+
+  function eventElement(target){
+    if (!target) return null;
+    if (typeof target.matches === "function" && typeof target.closest === "function") return target;
+    if (target.parentElement && typeof target.parentElement.matches === "function") return target.parentElement;
+    return null;
+  }
   function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 
   function toast(msg, isErr, ms){
@@ -1151,10 +1158,12 @@
 
   // ---------- Events ----------
   document.addEventListener("click", function(ev){
-    var del = ev.target.closest("[data-del]");
+    var el = eventElement(ev.target);
+    if (!el) return;
+    var del = el.closest("[data-del]");
     if (del){ deletePosition(del.getAttribute("data-del")); return; }
 
-    var t = ev.target.closest("[data-toggle]");
+    var t = el.closest("[data-toggle]");
     if (t){
       var pos = t.closest(".pos");
       pos.classList.toggle("open");
@@ -1167,7 +1176,8 @@
   });
 
   document.addEventListener("input", function(ev){
-    var el = ev.target;
+    var el = eventElement(ev.target);
+    if (!el) return;
     if (el.matches(".mark input[data-m]")){
       var id = el.getAttribute("data-id");
       var m = el.getAttribute("data-m");
@@ -1203,7 +1213,8 @@
   });
 
   document.addEventListener("change", function(ev){
-    var el = ev.target;
+    var el = eventElement(ev.target);
+    if (!el) return;
     if (el.matches("select[data-f]")){
       var id = el.getAttribute("data-id");
       var f = el.getAttribute("data-f");
@@ -1229,7 +1240,9 @@
 
   document.addEventListener("blur", function(ev){
     // Namen/Ticker-Aenderung an Kopfzeile + Badge sofort sichtbar machen
-    if (ev.target.matches('input[data-f="Name"], input[data-f="Ticker"], input[data-f="Liste"]')) render();
+    var el = eventElement(ev.target);
+    if (!el) return;
+    if (el.matches('input[data-f="Name"], input[data-f="Ticker"], input[data-f="Liste"]')) render();
   }, true);
 
   $("btnConnect").addEventListener("click", doSetup);
